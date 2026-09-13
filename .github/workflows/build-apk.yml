@@ -1,42 +1,53 @@
-name: Build Android APK
+name: Build Eiriksgata XiaoZhi iOS
 
 on:
   push:
-    tags:
-      - 'v*'  # 当推送 v 开头的 tag 时触发，如 v1.0.0
+    branches:
+      - eiriksgata-ios
+  workflow_dispatch:
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write  # 允许创建 Release
-    
+  build-ios:
+    name: Build iOS
+    runs-on: macos-latest
+
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v4
-      
-      - name: Setup Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'zulu'
-          java-version: '17'
-      
+
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.32.2'
-          channel: 'stable'
-      
+          flutter-version: '3.35.7'
+          channel: stable
+          cache: true
+
+      - name: Flutter version
+        run: flutter --version
+
       - name: Get dependencies
         run: flutter pub get
-      
-      - name: Build APK
-        run: flutter build apk --release
-      
-      - name: Create Release
-        uses: softprops/action-gh-release@v1
+
+      - name: Generate Dart code
+        run: dart run build_runner build --delete-conflicting-outputs
+
+      - name: Install CocoaPods
+        run: |
+          cd ios
+          pod install --repo-update
+
+      - name: Build iOS
+        run: flutter build ios --release --no-codesign
+
+      - name: Create IPA
+        run: |
+          mkdir -p build/ios/iphoneos/Payload
+          cp -R build/ios/iphoneos/Runner.app build/ios/iphoneos/Payload/
+          cd build/ios/iphoneos
+          zip -r xiaozhi-client-ios.ipa Payload
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
         with:
-          files: build/app/outputs/flutter-apk/app-release.apk
-          generate_release_notes: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          name: eiriksgata-ios-ipa
+          path: build/ios/iphoneos/xiaozhi-client-ios.ipa
