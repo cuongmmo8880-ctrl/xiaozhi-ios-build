@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-/// 聊天输入栏组件
+/// Chat input bar component
 class ChatInputBar extends StatefulWidget {
   final TextEditingController textController;
   final VoidCallback onSendText;
@@ -34,6 +34,12 @@ class _ChatInputBarState extends State<ChatInputBar> {
     super.dispose();
   }
 
+  void _openVoiceMode() {
+    FocusScope.of(context).unfocus();
+    debugPrint('VOICE_UI: microphone button pressed');
+    widget.onStartVoice();
+  }
+
   void _onTextChanged() {
     final hasText = widget.textController.text.trim().isNotEmpty;
     if (hasText != _hasText) {
@@ -61,20 +67,23 @@ class _ChatInputBarState extends State<ChatInputBar> {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
-            // 语音按钮
-            IconButton(
-              icon: const Icon(Icons.mic_outlined),
-              onPressed: widget.onStartVoice,
-              tooltip: '按住说话',
-            ),
-            // 图片按钮
-            IconButton(
-              icon: const Icon(Icons.image_outlined),
-              onPressed: widget.onPickImage,
-              tooltip: '发送图片',
+            // Voice button
+            SizedBox(
+              width: 48,
+              height: 48,
+              child: IconButton(
+                icon: const Icon(Icons.mic_outlined),
+                onPressed: _openVoiceMode,
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(
+                  minWidth: 48,
+                  minHeight: 48,
+                ),
+                tooltip: 'Hold to speak',
+              ),
             ),
 
-            // 输入框
+            // Text input
             Expanded(
               child: Container(
                 constraints: const BoxConstraints(maxHeight: 120),
@@ -87,7 +96,7 @@ class _ChatInputBarState extends State<ChatInputBar> {
                 child: TextField(
                   controller: widget.textController,
                   decoration: const InputDecoration(
-                    hintText: '输入消息...',
+                    hintText: 'Enter message...',
                     border: InputBorder.none,
                     contentPadding: EdgeInsets.symmetric(
                       horizontal: 16,
@@ -107,11 +116,11 @@ class _ChatInputBarState extends State<ChatInputBar> {
 
             const SizedBox(width: 4),
 
-            // 发送按钮
+            // Send button
             IconButton(
               icon: const Icon(Icons.send),
               onPressed: _hasText ? widget.onSendText : null,
-              tooltip: '发送',
+              tooltip: 'Send',
               color: _hasText
                   ? Theme.of(context).colorScheme.primary
                   : Colors.grey,

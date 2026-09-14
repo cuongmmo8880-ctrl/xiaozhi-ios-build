@@ -59,6 +59,7 @@ class _VoiceRecordButtonState extends State<VoiceRecordButton> {
         // 🔥 按住说话按钮
         Expanded(
           child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
             onLongPressStart: _isContinuousListening ? null : _onLongPressStart,
             onLongPressEnd: _isContinuousListening ? null : _onLongPressEnd,
             onLongPressMoveUpdate: _isContinuousListening
@@ -154,6 +155,7 @@ class _VoiceRecordButtonState extends State<VoiceRecordButton> {
   }
 
   void _onLongPressStart(LongPressStartDetails details) {
+    debugPrint('VOICE_UI: long press recognized');
     setState(() {
       _isCancelling = false;
     });
@@ -161,6 +163,7 @@ class _VoiceRecordButtonState extends State<VoiceRecordButton> {
   }
 
   void _onLongPressEnd(LongPressEndDetails details) {
+    debugPrint('VOICE_UI: long press released');
     if (_isCancelling) {
       widget.onRecordCancel();
     } else {
