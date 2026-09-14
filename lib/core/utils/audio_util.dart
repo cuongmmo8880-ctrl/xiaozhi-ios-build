@@ -75,30 +75,15 @@ class AudioUtil {
         throw Exception('需要麦克风权限');
       }
     } else {
-      // iOS/other platforms: request microphone permission
-      final status = await Permission.microphone.request();
-
-      print('$TAG: MIC_PERMISSION request status = $status');
-      print('$TAG: MIC_PERMISSION isGranted = ${status.isGranted}');
-      print('$TAG: MIC_PERMISSION isDenied = ${status.isDenied}');
-      print(
-        '$TAG: MIC_PERMISSION isPermanentlyDenied = '
-        '${status.isPermanentlyDenied}',
-      );
-
+      // iOS/other platforms: use record plugin for microphone permission
       final recorderPermission = await _audioRecorder.hasPermission();
+
       print(
         '$TAG: RECORD_PERMISSION hasPermission = $recorderPermission',
       );
 
-      if (!status.isGranted) {
-        print('$TAG: 麦克风权限被拒绝: $status');
-        throw Exception(
-            'MIC_PERMISSION: $status / granted=${status.isGranted} '
-            '/ denied=${status.isDenied} '
-            '/ permanentlyDenied=${status.isPermanentlyDenied} '
-            '/ recordHasPermission=$recorderPermission',
-        );
+      if (!recorderPermission) {
+        throw Exception('Microphone permission denied by recorder');
       }
     }
 
@@ -234,18 +219,16 @@ class AudioUtil {
       print('$TAG: 尝试启动录音 (AEC: $enableAEC)');
 
       // 确保麦克风权限已获取 - 使用不同方式检查权限
-      final status = await Permission.microphone.status;
-      print('$TAG: 麦克风权限状态: $status');
+      // Ensure microphone permission using record plugin
+      final recorderPermission = await _audioRecorder.hasPermission();
 
-      if (status != PermissionStatus.granted) {
-        final result = await Permission.microphone.request();
-        print('$TAG: 请求麦克风权限结果: $result');
-        if (result != PermissionStatus.granted) {
-          print('$TAG: 麦克风权限被拒绝: $result');
-          throw Exception('Microphone permission denied: $result');
-        }
+      print(
+        '$TAG: RECORD_PERMISSION hasPermission = $recorderPermission',
+      );
+
+      if (!recorderPermission) {
+        throw Exception('Microphone permission denied by recorder');
       }
-
       // 尝试直接使用音频流
       try {
         print('$TAG: 尝试启动流式录音 (AEC: $enableAEC, 降噪: $enableAEC, AGC: $enableAEC)');
