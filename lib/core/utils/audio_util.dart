@@ -75,10 +75,24 @@ class AudioUtil {
         throw Exception('需要麦克风权限');
       }
     } else {
-      // iOS/其他平台只请求麦克风权限
+      // iOS/other platforms: request microphone permission
       final status = await Permission.microphone.request();
-      if (status != PermissionStatus.granted) {
-        print('$TAG: 麦克风权限被拒绝');
+
+      print('$TAG: MIC_PERMISSION request status = $status');
+      print('$TAG: MIC_PERMISSION isGranted = ${status.isGranted}');
+      print('$TAG: MIC_PERMISSION isDenied = ${status.isDenied}');
+      print(
+        '$TAG: MIC_PERMISSION isPermanentlyDenied = '
+        '${status.isPermanentlyDenied}',
+      );
+
+      final recorderPermission = await _audioRecorder.hasPermission();
+      print(
+        '$TAG: RECORD_PERMISSION hasPermission = $recorderPermission',
+      );
+
+      if (!status.isGranted) {
+        print('$TAG: 麦克风权限被拒绝: $status');
         throw Exception('需要麦克风权限');
       }
     }
@@ -222,8 +236,8 @@ class AudioUtil {
         final result = await Permission.microphone.request();
         print('$TAG: 请求麦克风权限结果: $result');
         if (result != PermissionStatus.granted) {
-          print('$TAG: 麦克风权限被拒绝');
-          return;
+          print('$TAG: 麦克风权限被拒绝: $result');
+          throw Exception('Microphone permission denied: $result');
         }
       }
 
