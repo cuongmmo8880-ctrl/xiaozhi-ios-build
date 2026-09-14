@@ -93,7 +93,12 @@ class AudioUtil {
 
       if (!status.isGranted) {
         print('$TAG: 麦克风权限被拒绝: $status');
-        throw Exception('需要麦克风权限');
+        throw Exception(
+            'MIC_PERMISSION: $status / granted=${status.isGranted} '
+            '/ denied=${status.isDenied} '
+            '/ permanentlyDenied=${status.isPermanentlyDenied} '
+            '/ recordHasPermission=$recorderPermission',
+        );
       }
     }
 
