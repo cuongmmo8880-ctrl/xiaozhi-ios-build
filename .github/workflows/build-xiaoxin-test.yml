@@ -1,0 +1,52 @@
+name: Build XiaoXin Test IPA
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-ios:
+    name: Build XiaoXin iOS
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout build repo
+        uses: actions/checkout@v4
+
+      - name: Clone XiaoXin
+        run: |
+          git clone https://github.com/fengin/xiaoxin-app.git source
+          cd source
+          git checkout main
+          git log -1 --oneline
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.35.7'
+          channel: stable
+          cache: true
+
+      - name: Flutter Doctor
+        run: flutter doctor -v
+
+      - name: Get dependencies
+        working-directory: source
+        run: flutter pub get
+
+      - name: Build iOS
+        working-directory: source
+        run: flutter build ios --release --no-codesign
+
+      - name: Create IPA
+        working-directory: source
+        run: |
+          mkdir -p Payload
+          cp -R build/ios/iphoneos/Runner.app Payload/
+          zip -r xiaoxin-app-test.ipa Payload
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: xiaoxin-app-test-ipa
+          path: source/xiaoxin-app-test.ipa
+          retention-days: 7
