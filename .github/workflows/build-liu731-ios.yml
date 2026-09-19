@@ -11,7 +11,6 @@ jobs:
     runs-on: macos-latest
 
     steps:
-
       - name: Clone liu731/xiaozhi
         run: |
           git clone --depth 1 https://github.com/liu731/xiaozhi.git source
@@ -26,194 +25,105 @@ jobs:
       - name: Patch microphone permission
         working-directory: source
         run: |
-          python3 -c '
+          python3 - <<'PY'
           from pathlib import Path
-          p=Path("ios/Runner/Info.plist")
-          s=p.read_text()
-          key="<key>NSMicrophoneUsageDescription</key>"
+
+          p = Path("ios/Runner/Info.plist")
+          s = p.read_text()
+
+          key = "<key>NSMicrophoneUsageDescription</key>"
+
           if key not in s:
-              s=s.replace(
+              s = s.replace(
                   "<dict>",
                   "<dict>\n"
                   "\t<key>NSMicrophoneUsageDescription</key>\n"
                   "\t<string>This app uses the microphone for Xiaozhi voice conversations.</string>",
                   1
               )
-          p.write_text(s)
-          '
 
-      - name: Patch iOS startup
+          p.write_text(s)
+          PY
+
+      - name: Patch iOS startup for iOS 15 test
         working-directory: source
         run: |
-          python3 -c '
+          python3 - <<'PY'
           from pathlib import Path
-          p=Path("ios/Runner/Info.plist")
-          s=p.read_text()
-          s=s.replace(
+
+          plist = Path("ios/Runner/Info.plist")
+          s = plist.read_text()
+
+          s = s.replace(
               "\t<key>UIMainStoryboardFile</key>\n"
               "\t<string>Main</string>\n",
               ""
           )
-          p.write_text(s)
-          '
+
+          plist.write_text(s)
+          PY
 
           cat > ios/Runner/AppDelegate.swift <<'EOF'
-import Flutter
-import UIKit
+          import Flutter
+          import UIKit
 
-@main
-@objc class AppDelegate: FlutterAppDelegate {
-  override func application(
-    _ application: UIApplication,
-    didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
-  ) -> Bool {
+          @main
+          @objc class AppDelegate: FlutterAppDelegate {
+            override func application(
+              _ application: UIApplication,
+              didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
+            ) -> Bool {
 
-    let flutterViewController = FlutterViewController()
+              let flutterViewController = FlutterViewController()
 
-    let appWindow = UIWindow(frame: UIScreen.main.bounds)
-    appWindow.rootViewController = flutterViewController
-    appWindow.makeKeyAndVisible()
+              let appWindow = UIWindow(frame: UIScreen.main.bounds)
+              appWindow.rootViewController = flutterViewController
+              appWindow.makeKeyAndVisible()
 
-    self.window = appWindow
+              self.window = appWindow
 
-    GeneratedPluginRegistrant.register(with: self)
+              GeneratedPluginRegistrant.register(with: self)
 
-    return super.application(
-      application,
-      didFinishLaunchingWithOptions: launchOptions
-    )
-  }
-}
-EOF
+              return super.application(
+                application,
+                didFinishLaunchingWithOptions: launchOptions
+              )
+            }
+          }
+          EOF
 
-      - name: Patch microphone capture
+      - name: Patch microphone echo cancellation
         working-directory: source
         run: |
-          python3 -c '
-          from pathlib import Path
-
-          p=Path("lib/bloc/chat/chat_bloc.dart")
-          s=p.read_text()
-
-          old="            echoCancel: true,"
-          new="            echoCancel: false,"
-
-          if old not in s:
-              raise SystemExit("ERROR: echoCancel line not found")
-
-          s=s.replace(old,new,1)
-
-          old="""        _audioRecorderStream = (await _audioRecorder!.startStream(
-"""
-          new="""        print("MIC: permission OK");
-        print("MIC: starting stream sampleRate=$_audioSampleRate channels=$_audioChannels frameDuration=$_audioFrameDuration");
-
-        _audioRecorderStream = (await _audioRecorder!.startStream(
-"""
-
-          if old not in s:
-              raise SystemExit("ERROR: startStream line not found")
-
-          s=s.replace(old,new,1)
-
-          old="""        ));
-
-        if (null != _audioRecorderSubscription)"""
-          new="""        ));
-
-        print("MIC: startStream OK");
-
-        if (null != _audioRecorderSubscription)"""
-
-          if old not in s:
-              raise SystemExit("ERROR: startStream end not found")
-
-          s=s.replace(old,new,1)
-
-          old="""        _audioRecorderSubscription = _audioRecorderStream!.listen((data) async {
-          if (_websocketChannel != null &&"""
-          new="""        _audioRecorderSubscription = _audioRecorderStream!.listen((data) async {
-          print("MIC PCM: ${data.length} bytes");
-
-          if (_websocketChannel != null &&"""
-
-          if old not in s:
-              raise SystemExit("ERROR: PCM listener not found")
-
-          s=s.replace(old,new,1)
-
-          old="""            if (null != opusData) {
-              _websocketChannel!.sink.add(opusData);
-            }"""
-          new="""            print("MIC OPUS: ${opusData?.length ?? 0} bytes");
-
-            if (null != opusData) {
-              _websocketChannel!.sink.add(opusData);
-              print("MIC WS: sent");
-            }"""
-
-          if old not in s:
-              raise SystemExit("ERROR: Opus send not found")
-
-          s=s.replace(old,new,1)
-
-          old="""        });
-      }
-
-      if (event is ChatOnMessageEvent)"""
-          new="""        }, onError: (e, s) {
-          print("MIC STREAM ERROR: $e");
-          print(s);
-        });
-      }
-
-      if (event is ChatOnMessageEvent)"""
-
-          if old not in s:
-              raise SystemExit("ERROR: microphone error handler location not found")
-
-          s=s.replace(old,new,1)
-
-          p.write_text(s)
-
-          print("MIC PATCH OK")
-          '
-
-          echo "===== echoCancel ====="
+          sed -i 's/echoCancel: true/echoCancel: false/' lib/bloc/chat/chat_bloc.dart
+          echo "========== echoCancel =========="
           grep -n "echoCancel" lib/bloc/chat/chat_bloc.dart
-
-          echo "===== MIC markers ====="
-          grep -n "MIC:" lib/bloc/chat/chat_bloc.dart
-
-      - name: Verify patches
+      - name: Verify iOS startup patch
         working-directory: source
         run: |
-          echo "===== UIMainStoryboardFile ====="
+          echo "========== Info.plist =========="
 
-          if grep -q "UIMainStoryboardFile" ios/Runner/Info.plist; then
+          echo "--- Main storyboard ---"
+          if grep -A1 "UIMainStoryboardFile" ios/Runner/Info.plist; then
             echo "ERROR: UIMainStoryboardFile still exists"
             exit 1
+          else
+            echo "OK: UIMainStoryboardFile removed"
           fi
 
-          echo "OK: storyboard startup removed"
+          echo "--- Launch storyboard ---"
+          grep -A1 "UILaunchStoryboardName" ios/Runner/Info.plist || true
+
+          echo "--- Microphone ---"
+          grep -A1 "NSMicrophoneUsageDescription" ios/Runner/Info.plist || true
 
           echo
-          echo "===== Microphone permission ====="
-
-          grep -A1 "NSMicrophoneUsageDescription" \
-            ios/Runner/Info.plist
+          echo "========== AppDelegate.swift =========="
+          cat ios/Runner/AppDelegate.swift
 
           echo
-          echo "===== echoCancel ====="
-
-          grep "echoCancel" \
-            lib/bloc/chat/chat_bloc.dart
-
-          echo
-          echo "===== MIC debug ====="
-
-          grep -n "MIC:" \
-            lib/bloc/chat/chat_bloc.dart
+          echo "========== Podfile microphone =========="
+          grep -A3 "PERMISSION_MICROPHONE" ios/Podfile || true
 
       - name: Flutter pub get
         working-directory: source
@@ -233,16 +143,9 @@ EOF
         working-directory: source
         run: |
           mkdir -p ../ipa/Payload
-
-          cp -R \
-            build/ios/iphoneos/Runner.app \
-            ../ipa/Payload/Xiaozhi.app
-
+          cp -R build/ios/iphoneos/Runner.app ../ipa/Payload/Xiaozhi.app
           cd ../ipa
-
-          zip -r \
-            ../xiaozhi-liu731.ipa \
-            Payload
+          zip -r ../xiaozhi-liu731.ipa Payload
 
       - name: Upload IPA
         uses: actions/upload-artifact@v4
