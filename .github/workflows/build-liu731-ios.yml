@@ -51,12 +51,6 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
 
-          # Bypass UIKit loading Main.storyboard.
-          # Current crash occurs in:
-          # -[UIApplication _loadMainStoryboardFileNamed:bundle:]
-          #
-          # Create FlutterViewController directly instead.
-
           plist = Path("ios/Runner/Info.plist")
           s = plist.read_text()
 
@@ -67,44 +61,49 @@ jobs:
           )
 
           plist.write_text(s)
-
-          app_delegate = Path("ios/Runner/AppDelegate.swift")
-
-          app_delegate.write_text("""import Flutter
-import UIKit
-
-@main
-@objc class AppDelegate: FlutterAppDelegate {
-  override func application(
-    _ application: UIApplication,
-    didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
-  ) -> Bool {
-
-    let flutterViewController = FlutterViewController()
-
-    let appWindow = UIWindow(frame: UIScreen.main.bounds)
-    appWindow.rootViewController = flutterViewController
-    appWindow.makeKeyAndVisible()
-
-    self.window = appWindow
-
-    GeneratedPluginRegistrant.register(with: self)
-
-    return super.application(
-      application,
-      didFinishLaunchingWithOptions: launchOptions
-    )
-  }
-}
-""")
           PY
+
+          cat > ios/Runner/AppDelegate.swift <<'EOF'
+          import Flutter
+          import UIKit
+
+          @main
+          @objc class AppDelegate: FlutterAppDelegate {
+            override func application(
+              _ application: UIApplication,
+              didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
+            ) -> Bool {
+
+              let flutterViewController = FlutterViewController()
+
+              let appWindow = UIWindow(frame: UIScreen.main.bounds)
+              appWindow.rootViewController = flutterViewController
+              appWindow.makeKeyAndVisible()
+
+              self.window = appWindow
+
+              GeneratedPluginRegistrant.register(with: self)
+
+              return super.application(
+                application,
+                didFinishLaunchingWithOptions: launchOptions
+              )
+            }
+          }
+          EOF
 
       - name: Verify iOS startup patch
         working-directory: source
         run: |
           echo "========== Info.plist =========="
+
           echo "--- Main storyboard ---"
-          grep -A1 "UIMainStoryboardFile" ios/Runner/Info.plist || true
+          if grep -A1 "UIMainStoryboardFile" ios/Runner/Info.plist; then
+            echo "ERROR: UIMainStoryboardFile still exists"
+            exit 1
+          else
+            echo "OK: UIMainStoryboardFile removed"
+          fi
 
           echo "--- Launch storyboard ---"
           grep -A1 "UILaunchStoryboardName" ios/Runner/Info.plist || true
