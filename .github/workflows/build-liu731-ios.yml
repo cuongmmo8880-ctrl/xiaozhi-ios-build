@@ -95,7 +95,7 @@ jobs:
       - name: Patch microphone echo cancellation
         working-directory: source
         run: |
-          sed -i 's/echoCancel: true/echoCancel: false/' lib/bloc/chat/chat_bloc.dart
+          sed -i '' 's/echoCancel: true/echoCancel: false/' lib/bloc/chat/chat_bloc.dart
           echo "========== echoCancel =========="
           grep -n "echoCancel" lib/bloc/chat/chat_bloc.dart
       - name: Verify iOS startup patch
