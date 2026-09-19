@@ -22,6 +22,9 @@ jobs:
           channel: stable
           cache: true
 
+      # ============================================================
+      # MICROPHONE PERMISSION
+      # ============================================================
       - name: Patch microphone permission
         working-directory: source
         run: |
@@ -45,6 +48,9 @@ jobs:
           p.write_text(s)
           PY
 
+      # ============================================================
+      # IOS 15 STARTUP FIX
+      # ============================================================
       - name: Patch iOS startup for iOS 15 test
         working-directory: source
         run: |
@@ -92,7 +98,175 @@ jobs:
           }
           EOF
 
-      - name: Verify iOS startup patch
+      # ============================================================
+      # MICROPHONE CAPTURE FIX + DEBUG
+      #
+      # Quan trọng:
+      # record trên iOS không bật echoCancel.
+      # Đồng thời ghi log từng tầng:
+      #
+      # permission
+      #    ↓
+      # startStream
+      #    ↓
+      # PCM
+      #    ↓
+      # Opus
+      #    ↓
+      # WebSocket
+      # ============================================================
+      - name: Patch microphone capture for iOS 15
+        working-directory: source
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path("lib/bloc/chat/chat_bloc.dart")
+          s = p.read_text()
+
+          # ----------------------------------------------------------
+          # 1. Disable echo cancellation on iOS
+          # ----------------------------------------------------------
+          old = "            echoCancel: true,"
+          new = "            echoCancel: false,"
+
+          if old not in s:
+              raise SystemExit(
+                  "ERROR: Could not find echoCancel: true"
+              )
+
+          s = s.replace(old, new, 1)
+
+          # ----------------------------------------------------------
+          # 2. Log before startStream()
+          # ----------------------------------------------------------
+          old = """        _audioRecorderStream = (await _audioRecorder!.startStream(
+"""
+
+          new = """        print('MIC: permission OK');
+        print(
+          'MIC: starting stream '
+          'sampleRate=$_audioSampleRate '
+          'channels=$_audioChannels '
+          'frameDuration=$_audioFrameDuration'
+        );
+
+        _audioRecorderStream = (await _audioRecorder!.startStream(
+"""
+
+          if old not in s:
+              raise SystemExit(
+                  "ERROR: Could not find startStream()"
+              )
+
+          s = s.replace(old, new, 1)
+
+          # ----------------------------------------------------------
+          # 3. Log startStream success
+          # ----------------------------------------------------------
+          old = """        ));
+
+        if (null != _audioRecorderSubscription)"""
+
+          new = """        ));
+
+        print('MIC: startStream OK');
+
+        if (null != _audioRecorderSubscription)"""
+
+          if old not in s:
+              raise SystemExit(
+                  "ERROR: Could not patch startStream success"
+              )
+
+          s = s.replace(old, new, 1)
+
+          # ----------------------------------------------------------
+          # 4. Log PCM data
+          # ----------------------------------------------------------
+          old = """        _audioRecorderSubscription = _audioRecorderStream!.listen((data) async {
+          if (_websocketChannel != null &&"""
+
+          new = """        _audioRecorderSubscription = _audioRecorderStream!.listen((data) async {
+          print('MIC PCM: ${data.length} bytes');
+
+          if (_websocketChannel != null &&"""
+
+          if old not in s:
+              raise SystemExit(
+                  "ERROR: Could not patch PCM listener"
+              )
+
+          s = s.replace(old, new, 1)
+
+          # ----------------------------------------------------------
+          # 5. Log Opus data + WebSocket send
+          # ----------------------------------------------------------
+          old = """            if (null != opusData) {
+              _websocketChannel!.sink.add(opusData);
+            }"""
+
+          new = """            print(
+              'MIC OPUS: ${opusData?.length ?? 0} bytes'
+            );
+
+            if (null != opusData) {
+              _websocketChannel!.sink.add(opusData);
+              print('MIC WS: sent');
+            }"""
+
+          if old not in s:
+              raise SystemExit(
+                  "ERROR: Could not patch Opus send"
+              )
+
+          s = s.replace(old, new, 1)
+
+          # ----------------------------------------------------------
+          # 6. Catch microphone stream errors
+          # ----------------------------------------------------------
+          old = """        });
+      }
+
+      if (event is ChatOnMessageEvent)"""
+
+          new = """        }, onError: (e, s) {
+          print('MIC STREAM ERROR: $e');
+          print(s);
+        });
+      }
+
+      if (event is ChatOnMessageEvent)"""
+
+          if old not in s:
+              raise SystemExit(
+                  "ERROR: Could not patch microphone error handler"
+              )
+
+          s = s.replace(old, new, 1)
+
+          p.write_text(s)
+
+          print("MIC PATCH: OK")
+          PY
+
+          echo
+          echo "========== MICROPHONE PATCH CHECK =========="
+          grep -n -A55 -B10 "MIC: permission OK" \
+            lib/bloc/chat/chat_bloc.dart || true
+
+          echo
+          echo "========== echoCancel CHECK =========="
+          grep -n "echoCancel" \
+            lib/bloc/chat/chat_bloc.dart || true
+
+          echo
+          echo "==========================================="
+
+      # ============================================================
+      # VERIFY IOS CONFIG
+      # ============================================================
+      - name: Verify iOS startup and microphone patch
         working-directory: source
         run: |
           echo "========== Info.plist =========="
@@ -106,10 +280,17 @@ jobs:
           fi
 
           echo "--- Launch storyboard ---"
-          grep -A1 "UILaunchStoryboardName" ios/Runner/Info.plist || true
+          grep -A1 "UILaunchStoryboardName" \
+            ios/Runner/Info.plist || true
 
-          echo "--- Microphone ---"
-          grep -A1 "NSMicrophoneUsageDescription" ios/Runner/Info.plist || true
+          echo "--- Microphone permission ---"
+          if grep -A1 "NSMicrophoneUsageDescription" \
+              ios/Runner/Info.plist; then
+            echo "OK: microphone permission exists"
+          else
+            echo "ERROR: microphone permission missing"
+            exit 1
+          fi
 
           echo
           echo "========== AppDelegate.swift =========="
@@ -117,13 +298,25 @@ jobs:
 
           echo
           echo "========== Podfile microphone =========="
-          grep -A3 "PERMISSION_MICROPHONE" ios/Podfile || true
+          grep -A3 "PERMISSION_MICROPHONE" \
+            ios/Podfile || true
 
+          echo
+          echo "========== ChatBloc microphone =========="
+          grep -n -A60 -B10 "MIC: permission OK" \
+            lib/bloc/chat/chat_bloc.dart || true
+
+      # ============================================================
+      # FLUTTER
+      # ============================================================
       - name: Flutter pub get
         working-directory: source
         run: |
           flutter pub get
 
+      # ============================================================
+      # BUILD
+      # ============================================================
       - name: Build iOS
         working-directory: source
         run: |
@@ -133,14 +326,27 @@ jobs:
             --build-name=1.0.0 \
             --build-number=${{ github.run_number }}
 
+      # ============================================================
+      # IPA
+      # ============================================================
       - name: Create IPA
         working-directory: source
         run: |
           mkdir -p ../ipa/Payload
-          cp -R build/ios/iphoneos/Runner.app ../ipa/Payload/Xiaozhi.app
-          cd ../ipa
-          zip -r ../xiaozhi-liu731.ipa Payload
 
+          cp -R \
+            build/ios/iphoneos/Runner.app \
+            ../ipa/Payload/Xiaozhi.app
+
+          cd ../ipa
+
+          zip -r \
+            ../xiaozhi-liu731.ipa \
+            Payload
+
+      # ============================================================
+      # ARTIFACT
+      # ============================================================
       - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
