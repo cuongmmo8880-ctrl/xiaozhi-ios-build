@@ -53,17 +53,16 @@ jobs:
 
           if marker in text:
               print("PERMISSION_MICROPHONE=1 already exists")
-              raise SystemExit(0)
+          else:
+              target = "flutter_additional_ios_build_settings(target)"
 
-          target = "flutter_additional_ios_build_settings(target)"
+              if target not in text:
+                  raise SystemExit(
+                      "ERROR: flutter_additional_ios_build_settings(target) "
+                      "not found in ios/Podfile"
+                  )
 
-          if target not in text:
-              raise SystemExit(
-                  "ERROR: flutter_additional_ios_build_settings(target) "
-                  "not found in ios/Podfile"
-              )
-
-          replacement = """flutter_additional_ios_build_settings(target)
+              replacement = """flutter_additional_ios_build_settings(target)
 
           target.build_configurations.each do |config|
             config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] ||= [
@@ -72,9 +71,9 @@ jobs:
             ]
           end"""
 
-          text = text.replace(target, replacement, 1)
+              text = text.replace(target, replacement, 1)
 
-          podfile.write_text(text)
+              podfile.write_text(text)
 
           print("===== PATCHED Podfile =====")
           print(text)
@@ -108,7 +107,7 @@ jobs:
           flutter pub get
           flutter build ios --release --no-codesign
 
-      - name: Verify IPA app
+      - name: Verify built app
         working-directory: source
         run: |
           echo "===== BUILD OUTPUT ====="
@@ -116,6 +115,7 @@ jobs:
 
           echo ""
           echo "===== APP INFO ====="
+
           /usr/libexec/PlistBuddy \
             -c "Print :CFBundleIdentifier" \
             build/ios/iphoneos/Runner.app/Info.plist
@@ -126,13 +126,17 @@ jobs:
 
           echo ""
           echo "===== MICROPHONE USAGE DESCRIPTION ====="
+
           /usr/libexec/PlistBuddy \
             -c "Print :NSMicrophoneUsageDescription" \
             build/ios/iphoneos/Runner.app/Info.plist
 
       - name: Create IPA
         working-directory: source
+        shell: bash
         run: |
+          set -e
+
           rm -rf Payload
           rm -f xiaoxin-app-test.ipa
 
@@ -140,13 +144,33 @@ jobs:
 
           cp -R build/ios/iphoneos/Runner.app Payload/
 
-          cd Payload
-          zip -r ../xiaoxin-app-test.ipa Runner.app
+          echo "===== PAYLOAD STRUCTURE ====="
+          find Payload -maxdepth 2 -type d -print
 
-          cd ..
+          echo ""
+          echo "===== CREATE IPA ====="
 
-          echo "===== IPA ====="
+          zip -r xiaoxin-app-test.ipa Payload
+
+          echo ""
+          echo "===== IPA FILE ====="
           ls -lh xiaoxin-app-test.ipa
+
+          echo ""
+          echo "===== VERIFY IPA STRUCTURE ====="
+          unzip -l xiaoxin-app-test.ipa | head -30
+
+          echo ""
+          echo "===== VERIFY PAYLOAD/Runner.app ====="
+
+          unzip -l xiaoxin-app-test.ipa | grep "Payload/Runner.app/Info.plist"
+
+          if [ $? -ne 0 ]; then
+            echo "ERROR: Payload/Runner.app/Info.plist not found!"
+            exit 1
+          fi
+
+          echo "IPA structure OK."
 
       - name: Upload IPA
         uses: actions/upload-artifact@v4
