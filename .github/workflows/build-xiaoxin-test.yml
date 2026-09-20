@@ -27,22 +27,126 @@ jobs:
           cache: true
 
       - name: Flutter Doctor
-        run: flutter doctor -v
+        run: |
+          flutter --version
+          flutter doctor -v
+
+      - name: Patch iOS microphone permission
+        working-directory: source
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          podfile = Path("ios/Podfile")
+
+          if not podfile.exists():
+              raise SystemExit("ERROR: ios/Podfile not found")
+
+          text = podfile.read_text()
+
+          print("===== ORIGINAL Podfile =====")
+          print(text)
+          print("===== END ORIGINAL Podfile =====")
+
+          marker = "PERMISSION_MICROPHONE=1"
+
+          if marker in text:
+              print("PERMISSION_MICROPHONE=1 already exists")
+              raise SystemExit(0)
+
+          target = "flutter_additional_ios_build_settings(target)"
+
+          if target not in text:
+              raise SystemExit(
+                  "ERROR: flutter_additional_ios_build_settings(target) "
+                  "not found in ios/Podfile"
+              )
+
+          replacement = """flutter_additional_ios_build_settings(target)
+
+          target.build_configurations.each do |config|
+            config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] ||= [
+              '$(inherited)',
+              'PERMISSION_MICROPHONE=1',
+            ]
+          end"""
+
+          text = text.replace(target, replacement, 1)
+
+          podfile.write_text(text)
+
+          print("===== PATCHED Podfile =====")
+          print(text)
+          print("===== END PATCHED Podfile =====")
+          PY
+
+      - name: Verify microphone configuration
+        working-directory: source
+        run: |
+          echo "===== CHECK Podfile ====="
+          grep -n -A12 -B3 "PERMISSION_MICROPHONE" ios/Podfile || true
+
+          echo ""
+          echo "===== CHECK Info.plist ====="
+          grep -n -A2 -B2 "NSMicrophoneUsageDescription" ios/Runner/Info.plist || true
+
+          echo ""
+          echo "===== CHECK iOS files ====="
+          ls -la ios
+          ls -la ios/Runner
 
       - name: Get dependencies
         working-directory: source
-        run: flutter pub get
+        run: |
+          flutter pub get
 
       - name: Build iOS
         working-directory: source
-        run: flutter build ios --release --no-codesign
+        run: |
+          flutter clean
+          flutter pub get
+          flutter build ios --release --no-codesign
+
+      - name: Verify IPA app
+        working-directory: source
+        run: |
+          echo "===== BUILD OUTPUT ====="
+          ls -lah build/ios/iphoneos/
+
+          echo ""
+          echo "===== APP INFO ====="
+          /usr/libexec/PlistBuddy \
+            -c "Print :CFBundleIdentifier" \
+            build/ios/iphoneos/Runner.app/Info.plist
+
+          /usr/libexec/PlistBuddy \
+            -c "Print :CFBundleDisplayName" \
+            build/ios/iphoneos/Runner.app/Info.plist || true
+
+          echo ""
+          echo "===== MICROPHONE USAGE DESCRIPTION ====="
+          /usr/libexec/PlistBuddy \
+            -c "Print :NSMicrophoneUsageDescription" \
+            build/ios/iphoneos/Runner.app/Info.plist
 
       - name: Create IPA
         working-directory: source
         run: |
+          rm -rf Payload
+          rm -f xiaoxin-app-test.ipa
+
           mkdir -p Payload
+
           cp -R build/ios/iphoneos/Runner.app Payload/
-          zip -r xiaoxin-app-test.ipa Payload
+
+          cd Payload
+          zip -r ../xiaoxin-app-test.ipa Runner.app
+
+          cd ..
+
+          echo "===== IPA ====="
+          ls -lh xiaoxin-app-test.ipa
 
       - name: Upload IPA
         uses: actions/upload-artifact@v4
