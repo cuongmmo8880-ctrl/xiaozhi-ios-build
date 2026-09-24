@@ -106,10 +106,29 @@ jobs:
 
       - name: Build iOS
         working-directory: source
+        shell: bash
         run: |
+          set -e
+
           flutter clean
           flutter pub get
-          flutter build ios --release --no-codesign
+
+          # Generate Flutter iOS files/plugins without asking Flutter to sign.
+          flutter build ios --release --config-only
+
+          # Build the device app explicitly with signing disabled.
+          # GitHub-hosted macOS runners do not have the user's Apple
+          # Development Team / provisioning profile.
+          xcodebuild \
+            -workspace ios/Runner.xcworkspace \
+            -scheme Runner \
+            -configuration Release \
+            -sdk iphoneos \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            DEVELOPMENT_TEAM="" \
+            build
 
       - name: Verify built app
         working-directory: source
