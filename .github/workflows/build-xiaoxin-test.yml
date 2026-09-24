@@ -138,7 +138,7 @@ jobs:
       await RecordService.instance.resumeRecording();
 
       if (ProtocolService.instance.isConnected) {
-        ProtocolService.instance.sendStartListening(mode: 'realtime');
+        ProtocolService.instance.sendStartListening(mode: 'auto');
       }
 
       AppLogger.d('VAD enabled, server listen started');
