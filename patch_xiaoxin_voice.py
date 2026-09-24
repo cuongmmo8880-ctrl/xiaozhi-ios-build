@@ -4,6 +4,7 @@ root = Path("source")
 session = root / "lib/core/session_manager.dart"
 processor = root / "lib/modules/audio/audio_processor.dart"
 
+# ----- SessionManager: accept server audio whenever the session is active -----
 s = session.read_text()
 
 old = """  void _onAudioData(Uint8List data) {
@@ -28,14 +29,14 @@ old = """      // 【修正】不在会话开始时发送 listen start
 
       // 启用 VAD（录音已在 initialize 时启动）
       AudioService.instance.enableVad(true);"""
-new = """      // Start VAD/transport immediately. AudioProcessor opens
-      // the server listen state without waiting for local speech detection.
+new = """      // Start listening/transport immediately instead of waiting for local VAD.
       await AudioService.instance.enableVad(true);"""
 if old not in s:
     raise SystemExit("session_manager.dart: _startListening block not found")
 s = s.replace(old, new, 1)
 session.write_text(s)
 
+# ----- AudioProcessor: start/stop server listen with VAD and stream while VAD is enabled -----
 p = processor.read_text()
 
 old = """    if (enable && !wasEnabled) {
@@ -71,14 +72,26 @@ if old not in p:
     raise SystemExit("audio_processor.dart: enableVad block not found")
 p = p.replace(old, new, 1)
 
-start = p.index("    // ========== 4. VAD 状态检测与发送逻辑 ==========")
-end = p.index("  int _totalFramesSent = 0;", start)
-replacement = """    // ========== 4) Transport-level microphone streaming ==========
-    // Keep KWS/VAD processing for wake-word/UI behavior, but do not
-    // require VoiceEngine.isSpeaking before sending microphone audio.
+start_marker = "    // ========== 4. VAD 状态检测与发送逻辑 =========="
+end_marker = "    _wasSpeaking = isSpeaking;"
+
+start = p.index(start_marker)
+end = p.index(end_marker, start) + len(end_marker)
+
+replacement = """    // ========== 4. VAD/KWS state tracking ==========
+    final isSpeaking = VoiceEngine.instance.isSpeaking;
+    _wasSpeaking = isSpeaking;
+
+    // ========== 5. Transport-level microphone streaming ==========
+    // Do not require VoiceEngine.isSpeaking for transport. The server
+    // listen state is already opened when VAD is enabled.
     if (_vadEnabled) {
       if (_pcmBuffer.length + dataFor16k.length > _maxPcmBufferSize) {
-        AppLogger.w('PCM buffer overflow (' + _pcmBuffer.length.toString() + ' bytes), clearing');
+        AppLogger.w(
+          'PCM buffer overflow (' +
+              _pcmBuffer.length.toString() +
+              ' bytes), clearing to prevent memory leak',
+        );
         _pcmBuffer.clear();
       }
 
@@ -96,9 +109,8 @@ replacement = """    // ========== 4) Transport-level microphone streaming =====
           AppLogger.d('已发送 ' + _totalFramesSent.toString() + ' 帧音频');
         }
       }
-    }
+    }"""
 
-"""
 p = p[:start] + replacement + p[end:]
 processor.write_text(p)
 
