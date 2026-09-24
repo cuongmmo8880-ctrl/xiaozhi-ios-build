@@ -48,15 +48,9 @@ jobs:
 
           text = podfile.read_text()
 
-          print("===== ORIGINAL Podfile =====")
-          print(text)
-          print("===== END ORIGINAL Podfile =====")
-
           marker = "PERMISSION_MICROPHONE=1"
 
-          if marker in text:
-              print("PERMISSION_MICROPHONE=1 already exists")
-          else:
+          if marker not in text:
               target = "flutter_additional_ios_build_settings(target)"
 
               if target not in text:
@@ -75,12 +69,9 @@ jobs:
           end"""
 
               text = text.replace(target, replacement, 1)
-
               podfile.write_text(text)
 
-          print("===== PATCHED Podfile =====")
-          print(text)
-          print("===== END PATCHED Podfile =====")
+          print("PERMISSION_MICROPHONE=1 configured")
           PY
 
       - name: Patch XiaoXin voice transport
@@ -97,104 +88,93 @@ jobs:
           echo "===== CHECK Info.plist ====="
           grep -n -A2 -B2 "NSMicrophoneUsageDescription" ios/Runner/Info.plist || true
 
-          echo ""
-          echo "===== CHECK iOS files ====="
-          ls -la ios
-          ls -la ios/Runner
-
       - name: Get dependencies
         working-directory: source
         run: |
           flutter pub get
 
-      - name: Build iOS
+      - name: Prepare iOS project without signing
         working-directory: source
         shell: bash
         run: |
-          set -e
+          set -euo pipefail
 
-          flutter clean
-          flutter pub get
+          echo "===== FLUTTER ====="
+          flutter --version
 
-          # Generate Flutter iOS files/plugins without asking Flutter to sign.
+          echo "===== FLUTTER IOS CONFIG ====="
           flutter build ios --release --config-only
 
-          # Build the device app explicitly with signing disabled.
-          # GitHub-hosted macOS runners do not have the user's Apple
-          # Development Team / provisioning profile.
-          xcodebuild \
-            -workspace ios/Runner.xcworkspace \
-            -scheme Runner \
-            -configuration Release \
-            -sdk iphoneos \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY="" \
-            DEVELOPMENT_TEAM="" \
-            build
+          echo "===== COCOAPODS ====="
+          cd ios
+          pod install --repo-update
+          cd ..
+
+          echo "===== XCODE ====="
+          xcodebuild -version
+
+      - name: Build unsigned iOS app
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          rm -rf build/ios/xcode
+
+          xcodebuild             -workspace ios/Runner.xcworkspace             -scheme Runner             -configuration Release             -sdk iphoneos             -derivedDataPath build/ios/xcode             CODE_SIGNING_ALLOWED=NO             CODE_SIGNING_REQUIRED=NO             CODE_SIGN_IDENTITY=""             DEVELOPMENT_TEAM=""             build
 
       - name: Verify built app
         working-directory: source
+        shell: bash
         run: |
+          set -euo pipefail
+
+          APP_PATH="build/ios/xcode/Build/Products/Release-iphoneos/Runner.app"
+
           echo "===== BUILD OUTPUT ====="
-          ls -lah build/ios/iphoneos/
+          ls -lah build/ios/xcode/Build/Products/Release-iphoneos/
+
+          if [ ! -d "$APP_PATH" ]; then
+            echo "ERROR: Runner.app not found at $APP_PATH"
+            exit 1
+          fi
 
           echo ""
           echo "===== APP INFO ====="
 
-          /usr/libexec/PlistBuddy \
-            -c "Print :CFBundleIdentifier" \
-            build/ios/iphoneos/Runner.app/Info.plist
+          /usr/libexec/PlistBuddy             -c "Print :CFBundleIdentifier"             "$APP_PATH/Info.plist"
 
-          /usr/libexec/PlistBuddy \
-            -c "Print :CFBundleDisplayName" \
-            build/ios/iphoneos/Runner.app/Info.plist || true
+          /usr/libexec/PlistBuddy             -c "Print :CFBundleDisplayName"             "$APP_PATH/Info.plist" || true
 
           echo ""
           echo "===== MICROPHONE USAGE DESCRIPTION ====="
 
-          /usr/libexec/PlistBuddy \
-            -c "Print :NSMicrophoneUsageDescription" \
-            build/ios/iphoneos/Runner.app/Info.plist
+          /usr/libexec/PlistBuddy             -c "Print :NSMicrophoneUsageDescription"             "$APP_PATH/Info.plist"
 
       - name: Create IPA
         working-directory: source
         shell: bash
         run: |
-          set -e
+          set -euo pipefail
+
+          APP_PATH="build/ios/xcode/Build/Products/Release-iphoneos/Runner.app"
 
           rm -rf Payload
           rm -f xiaoxin-app-test.ipa
 
           mkdir -p Payload
+          cp -R "$APP_PATH" Payload/Runner.app
 
-          cp -R build/ios/iphoneos/Runner.app Payload/
-
-          echo "===== PAYLOAD STRUCTURE ====="
-          find Payload -maxdepth 2 -type d -print
-
-          echo ""
           echo "===== CREATE IPA ====="
-
-          zip -r xiaoxin-app-test.ipa Payload
+          zip -qry xiaoxin-app-test.ipa Payload
 
           echo ""
           echo "===== IPA FILE ====="
           ls -lh xiaoxin-app-test.ipa
 
           echo ""
-          echo "===== VERIFY IPA STRUCTURE ====="
-          unzip -l xiaoxin-app-test.ipa | head -30
-
-          echo ""
-          echo "===== VERIFY PAYLOAD/Runner.app ====="
-
+          echo "===== VERIFY IPA ====="
           unzip -l xiaoxin-app-test.ipa | grep "Payload/Runner.app/Info.plist"
-
-          if [ $? -ne 0 ]; then
-            echo "ERROR: Payload/Runner.app/Info.plist not found!"
-            exit 1
-          fi
 
           echo "IPA structure OK."
 
