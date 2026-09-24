@@ -102,9 +102,6 @@ jobs:
           echo "===== FLUTTER ====="
           flutter --version
 
-          echo "===== FLUTTER IOS CONFIG ====="
-          flutter build ios --release --config-only
-
           echo "===== COCOAPODS ====="
           cd ios
           pod install --repo-update
